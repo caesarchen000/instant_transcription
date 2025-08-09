@@ -1,21 +1,20 @@
 # Audio recording
 pyaudio>=0.2.11
-numpy>=1.19.0,<1.22.0
+numpy>=1.21.0
+openai-whisper>=20230117
+torch<2.0.0,>=1.9.0
 
 # Speech recognition and translation
-openai-whisper>=20230117
-torch>=1.9.0,<2.0.0
 googletrans==4.0.0rc1
-
-# Audio processing
+SpeechRecognition>=3.8.1
 ffmpeg-python>=0.2.0
+scipy>=1.7.0
 
-# GUI (tkinter is usually included with Python)
-# No additional GUI dependencies needed 
-
+# GUI and utilities
 pyautogui
 Pillow
 plyer
 mss
-sounddevice
-soundfile
+sounddevice>=0.4.1
+soundfile>=0.10.3
+translate

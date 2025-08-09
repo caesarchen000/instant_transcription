@@ -102,18 +102,24 @@ class VoiceRecorder:
                 print("record+listening is an output device. Using BlackHole 16ch for recording...")
                 device_index = next(i for i, d in enumerate(device_info) if 'BlackHole 16ch' in d['name'])
                 selected_device = device_info[device_index]
+                print(f"Switched to device: {selected_device['name']}")
+                print(f"BlackHole device info: {selected_device}")
                 # Limit to 2 channels for compatibility with audio players
                 channels = 2
-                print(f"Switched to device: {selected_device['name']} with {channels} channels (limited from 16 for compatibility)")
+                print(f"Using {channels} channels (limited from 16 for compatibility)")
                 
         except StopIteration:
             print("record+listening not found. Using BlackHole 16ch...")
             device_index = next(i for i, d in enumerate(device_info) if 'BlackHole 16ch' in d['name'])
             selected_device = device_info[device_index]
+            print(f"Using device: {selected_device['name']}")
+            print(f"BlackHole device info: {selected_device}")
             # Limit to 2 channels for compatibility
             channels = 2
-            print(f"Using device: {selected_device['name']} with {channels} channels (limited for compatibility)")
+            print(f"Using {channels} channels (limited for compatibility)")
 
+        print(f"Final device selection: {selected_device['name']} with {channels} channels")
+        
         # Create recordings directory if it doesn't exist
         os.makedirs('recordings', exist_ok=True)
         
@@ -128,6 +134,7 @@ class VoiceRecorder:
         
         try:
             with sd.InputStream(samplerate=samplerate, channels=channels, dtype='int16', device=device_index) as stream:
+                print(f"Recording started with device: {selected_device['name']}")
                 while self.recording:
                     audio_data, overflowed = stream.read(1024)
                     frames.append(audio_data)
