@@ -146,7 +146,7 @@ class RealTimeAudioTranslator:
         
         # Set default values
         self.source_language.set("English")
-        self.target_language.set("Chinese (Simplified)")
+        self.target_language.set("Chinese (Traditional)")
     
     def get_language_code(self, display_name):
         """Convert display name to language code"""
@@ -298,40 +298,59 @@ class RealTimeAudioTranslator:
 
             print(f"Final device selection: {selected_device['name']} with {channels} channels")
             
-            # Record audio using selected device (like screen_recorder.py)
+            # Record audio using selected device with improved buffering
             frames = []
             start_time = time.time()
             
-            with sd.InputStream(samplerate=self.sample_rate, channels=channels, dtype='int16', device=device_index) as stream:
-                print(f"Recording started with device: {selected_device['name']}")
+            # Use larger chunk size for better audio quality and less fragmentation
+            chunk_size = 4096  # Increased from 1024 for better buffering
+            
+            with sd.InputStream(samplerate=self.sample_rate, channels=channels, dtype='int16', device=device_index, blocksize=chunk_size) as stream:
+                print(f"Recording started with device: {selected_device['name']} (chunk size: {chunk_size})")
+                
+                # Wait a moment for the stream to stabilize
+                time.sleep(0.1)
+                
                 while self.is_recording:
-                    audio_data, overflowed = stream.read(1024)
-                    frames.append(audio_data)
-                    
-                    # Debug: Check audio levels every 50 frames
-                    if len(frames) % 50 == 0:
-                        # Calculate RMS (Root Mean Square) to check audio levels
-                        rms = np.sqrt(np.mean(audio_data.astype(np.float32)**2))
-                        print(f"Audio level (RMS): {rms:.2f} (frames: {len(frames)})")
-                    
-                    # Update timer
-                    passed = time.time() - start_time
-                    seconds = int(passed % 60)
-                    minutes = int(passed // 60)
-                    hours = int(passed // 3600)
-                    self.root.after(0, lambda: self.timer_label.config(text=f"{hours:02d}:{minutes:02d}:{seconds:02d}"))
-                    
-                print("Audio recording stopped")
+                    try:
+                        audio_data, overflowed = stream.read(chunk_size)
+                        if overflowed:
+                            print(f"Audio overflow detected at frame {len(frames)}")
+                        
+                        frames.append(audio_data)
+                        
+                        # Debug: Check audio levels every 25 frames (less frequent for larger chunks)
+                        if len(frames) % 25 == 0:
+                            # Calculate RMS (Root Mean Square) to check audio levels
+                            rms = np.sqrt(np.mean(audio_data.astype(np.float32)**2))
+                            print(f"Audio level (RMS): {rms:.2f} (frames: {len(frames)}, total time: {len(frames) * chunk_size / self.sample_rate:.1f}s)")
+                        
+                        # Update timer
+                        passed = time.time() - start_time
+                        seconds = int(passed % 60)
+                        minutes = int(passed // 60)
+                        hours = int(passed // 3600)
+                        self.root.after(0, lambda: self.timer_label.config(text=f"{hours:02d}:{minutes:02d}:{seconds:02d}"))
+                        
+                        # Small delay to prevent excessive CPU usage
+                        time.sleep(0.001)
+                        
+                    except Exception as e:
+                        print(f"Error reading audio frame: {e}")
+                        break
+                
+                print(f"Audio recording stopped. Total frames: {len(frames)}")
                 
                 # Process the recorded audio when stopping
                 if frames:
-                    print(f"Processing {len(frames)} audio frames...")
+                    total_duration = len(frames) * chunk_size / self.sample_rate
+                    print(f"Processing {len(frames)} audio frames (total duration: {total_duration:.2f} seconds)...")
                     
                     # Debug: Check overall audio levels
                     all_audio = np.concatenate(frames, axis=0)
                     max_level = np.max(np.abs(all_audio))
                     avg_level = np.mean(np.abs(all_audio))
-                    print(f"Audio statistics - Max: {max_level}, Avg: {avg_level:.2f}")
+                    print(f"Audio statistics - Max: {max_level}, Avg: {avg_level:.2f}, Duration: {total_duration:.2f}s")
                     
                     self.root.after(0, lambda: self.status_var.set("Processing audio..."))
                     self.root.after(0, lambda: self.update_progress(50, "Transcribing audio..."))
@@ -364,6 +383,18 @@ class RealTimeAudioTranslator:
             audio_data = np.concatenate(frames, axis=0)
             print(f"Combined audio data shape: {audio_data.shape}")
             
+            # Calculate audio duration and quality metrics
+            total_samples = audio_data.shape[0]
+            duration_seconds = total_samples / self.sample_rate
+            print(f"Audio duration: {duration_seconds:.2f} seconds")
+            
+            # Check if audio has meaningful content (not just silence)
+            audio_rms = np.sqrt(np.mean(audio_data.astype(np.float32)**2))
+            silence_threshold = 100  # Adjust this threshold as needed
+            
+            if audio_rms < silence_threshold:
+                print(f"Warning: Audio seems very quiet (RMS: {audio_rms:.2f}). This might be silence or very low volume.")
+            
             # Save to temporary file for processing
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
                 temp_filename = temp_file.name
@@ -372,13 +403,6 @@ class RealTimeAudioTranslator:
                     audio_data = (audio_data * 32767).astype(np.int16)
                 sf.write(temp_filename, audio_data, self.sample_rate, subtype='PCM_16')
                 print(f"Saved audio to temp file: {temp_filename}")
-            
-            # Also save to a permanent file for checking
-            import datetime
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            permanent_filename = f"recorded_audio_{timestamp}.wav"
-            sf.write(permanent_filename, audio_data, self.sample_rate, subtype='PCM_16')
-            print(f"Saved audio to permanent file: {permanent_filename}")
             
             # Transcribe audio
             source_lang = self.source_language.get()

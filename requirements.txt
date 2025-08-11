@@ -2,7 +2,7 @@
 pyaudio>=0.2.11
 numpy>=1.21.0
 openai-whisper>=20230117
-torch<2.0.0,>=1.9.0
+torch>=1.9.0
 
 # Speech recognition and translation
 googletrans==4.0.0rc1
@@ -18,3 +18,4 @@ mss
 sounddevice>=0.4.1
 soundfile>=0.10.3
 translate
+opencv-python
