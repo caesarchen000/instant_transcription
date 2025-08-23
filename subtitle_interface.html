@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Subtitle Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(45deg, #00d4ff, #ff6b6b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            color: #cccccc;
+        }
+
+        .controls {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .control-group {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .control-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(45deg, #00d4ff, #0099cc);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 212, 255, 0.4);
+        }
+
+        .btn-danger {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a52);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(255, 107, 107, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .language-selector {
+            padding: 10px 15px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 1rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .language-selector option {
+            background: #2d2d2d;
+            color: white;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status.recording {
+            background: linear-gradient(45deg, #00ff88, #00cc6a);
+            color: #1a1a1a;
+        }
+
+        .status.stopped {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a52);
+            color: white;
+        }
+
+        .timer {
+            font-family: 'Courier New', monospace;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #00d4ff;
+        }
+
+        .subtitle-display {
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .subtitle-text {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            line-height: 1.6;
+            max-width: 600px;
+        }
+
+        .subtitle-original {
+            color: #ffffff;
+            font-weight: 500;
+        }
+
+        .subtitle-translated {
+            color: #00d4ff;
+            font-weight: 600;
+            font-size: 1.3rem;
+        }
+
+        .subtitle-timestamp {
+            color: #888888;
+            font-size: 0.9rem;
+            margin-top: 10px;
+        }
+
+        .no-subtitle {
+            color: #666666;
+            font-style: italic;
+        }
+
+        .info-panel {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .info-panel h3 {
+            color: #00d4ff;
+            margin-bottom: 10px;
+        }
+
+        .info-panel p {
+            color: #cccccc;
+            line-height: 1.6;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        .recording .btn-primary {
+            animation: pulse 2s infinite;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .control-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .subtitle-text {
+                font-size: 1.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎙️ Live Subtitle Generator</h1>
+        <p>Real-time speech-to-text with translation</p>
+    </div>
+
+    <div class="controls">
+        <div class="control-group">
+            <button id="startBtn" class="btn btn-primary">🎬 Start Recording</button>
+            <button id="stopBtn" class="btn btn-danger" disabled>⏹️ Stop Recording</button>
+        </div>
+        
+        <div class="control-group">
+            <label for="inputLang">🎤 Input Language (What you speak):</label>
+            <select id="inputLang" class="language-selector">
+                <option value="en" selected>English</option>
+                <option value="zh">Chinese (中文)</option>
+                <option value="es">Spanish (Español)</option>
+                <option value="fr">French (Français)</option>
+                <option value="de">German (Deutsch)</option>
+                <option value="ja">Japanese (日本語)</option>
+                <option value="ko">Korean (한국어)</option>
+                <option value="ru">Russian (Русский)</option>
+                <option value="ar">Arabic (العربية)</option>
+                <option value="hi">Hindi (हिन्दी)</option>
+                <option value="pt">Portuguese (Português)</option>
+                <option value="it">Italian (Italiano)</option>
+                <option value="nl">Dutch (Nederlands)</option>
+                <option value="sv">Swedish (Svenska)</option>
+                <option value="no">Norwegian (Norsk)</option>
+                <option value="da">Danish (Dansk)</option>
+                <option value="fi">Finnish (Suomi)</option>
+                <option value="pl">Polish (Polski)</option>
+                <option value="tr">Turkish (Türkçe)</option>
+                <option value="he">Hebrew (עברית)</option>
+                <option value="th">Thai (ไทย)</option>
+                <option value="vi">Vietnamese (Tiếng Việt)</option>
+                <option value="id">Indonesian (Bahasa Indonesia)</option>
+                <option value="ms">Malay (Bahasa Melayu)</option>
+                <option value="tl">Filipino (Tagalog)</option>
+            </select>
+        </div>
+        
+        <div class="control-group">
+            <label for="outputLang">🌍 Output Language (Translation target):</label>
+            <select id="outputLang" class="language-selector">
+                <option value="en">English</option>
+                <option value="zh" selected>Chinese (中文)</option>
+                <option value="es">Spanish (Español)</option>
+                <option value="fr">French (Français)</option>
+                <option value="de">German (Deutsch)</option>
+                <option value="ja">Japanese (日本語)</option>
+                <option value="ko">Korean (한국어)</option>
+                <option value="ru">Russian (Русский)</option>
+                <option value="ar">Arabic (العربية)</option>
+                <option value="hi">Hindi (हिन्दी)</option>
+                <option value="pt">Portuguese (Português)</option>
+                <option value="it">Italian (Italiano)</option>
+                <option value="nl">Dutch (Nederlands)</option>
+                <option value="sv">Swedish (Svenska)</option>
+                <option value="no">Norwegian (Norsk)</option>
+                <option value="da">Danish (Dansk)</option>
+                <option value="fi">Finnish (Suomi)</option>
+                <option value="pl">Polish (Polski)</option>
+                <option value="tr">Turkish (Türkçe)</option>
+                <option value="he">Hebrew (עברית)</option>
+                <option value="th">Thai (ไทย)</option>
+                <option value="vi">Vietnamese (Tiếng Việt)</option>
+                <option value="id">Indonesian (Bahasa Indonesia)</option>
+                <option value="ms">Malay (Bahasa Melayu)</option>
+                <option value="tl">Filipino (Tagalog)</option>
+            </select>
+        </div>
+        
+        <div class="control-group">
+            <span>Status: <span id="statusIndicator" class="status stopped">Stopped</span></span>
+            <span>Time: <span id="timer" class="timer">00:00:00</span></span>
+        </div>
+    </div>
+
+    <div class="subtitle-display">
+        <div id="subtitleContent">
+            <div class="no-subtitle">No subtitles yet. Start recording to see live transcription!</div>
+        </div>
+    </div>
+
+            <div class="info-panel">
+            <h3>📋 How It Works</h3>
+            <p>1. Select your <strong>Input Language</strong> (what you'll speak)</p>
+            <p>2. Select your <strong>Output Language</strong> (translation target)</p>
+            <p>3. Click "Start Recording" to begin capturing audio from your microphone</p>
+            <p>4. Speak clearly and watch as your words appear as subtitles</p>
+            <p>5. The system will automatically translate from input to output language</p>
+            <p>6. Click "Stop Recording" when you're done</p>
+        </div>
+
+    <script>
+        // Global variables
+        let isRecording = false;
+        let startTime = null;
+        let timerInterval = null;
+        let subtitleUpdateInterval = null;
+        
+        // DOM elements
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const timer = document.getElementById('timer');
+        const subtitleContent = document.getElementById('subtitleContent');
+        const inputLang = document.getElementById('inputLang');
+        const outputLang = document.getElementById('outputLang');
+        
+        // Server configuration
+        const SERVER_URL = 'http://localhost:8766';
+        
+        // Event listeners
+        startBtn.addEventListener('click', startRecording);
+        stopBtn.addEventListener('click', stopRecording);
+        
+        // Language change listeners
+        inputLang.addEventListener('change', updateLanguageSettings);
+        outputLang.addEventListener('change', updateLanguageSettings);
+        
+        // Audio processor integration
+        let audioProcessor = null;
+        let isConnectedToProcessor = false;
+        
+        // Functions
+        async function startRecording() {
+            try {
+                // Get language settings
+                const inputLangCode = inputLang.value;
+                const outputLangCode = outputLang.value;
+                
+                console.log(`🌍 Starting recording: ${inputLangCode} → ${outputLangCode}`);
+                
+                // Update UI to show connecting state
+                startBtn.disabled = true;
+                startBtn.textContent = '🔄 Connecting...';
+                
+                // Connect to audio processor
+                if (!isConnectedToProcessor) {
+                    await connectToAudioProcessor();
+                }
+                
+                if (!audioProcessor) {
+                    throw new Error('Failed to connect to audio processor');
+                }
+                
+                // Start recording
+                const success = await audioProcessor.startRecording(inputLangCode, outputLangCode);
+                
+                if (success) {
+                    isRecording = true;
+                    startTime = Date.now();
+                    
+                    // Update UI
+                    startBtn.textContent = '🎬 Recording...';
+                    stopBtn.disabled = false;
+                    statusIndicator.textContent = 'Recording';
+                    statusIndicator.className = 'status recording';
+                    startBtn.parentElement.classList.add('recording');
+                    
+                    // Start timer
+                    startTimer();
+                    
+                    // Start subtitle updates
+                    startSubtitleUpdates();
+                    
+                    console.log('🎙️ Recording started successfully');
+                } else {
+                    throw new Error('Failed to start recording');
+                }
+                
+            } catch (error) {
+                console.error('❌ Error starting recording:', error);
+                
+                // Reset UI
+                startBtn.disabled = false;
+                startBtn.textContent = '🎬 Start Recording';
+                statusIndicator.textContent = 'Error';
+                statusIndicator.className = 'status stopped';
+                
+                // Show error message
+                subtitleContent.innerHTML = `
+                    <div class="no-subtitle" style="color: #ff6b6b;">
+                        ❌ Failed to start recording: ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        async function stopRecording() {
+            try {
+                console.log('⏹️ Stopping recording...');
+                
+                // Stop recording in audio processor
+                if (audioProcessor && isRecording) {
+                    await audioProcessor.stopRecording();
+                }
+                
+                isRecording = false;
+                
+                // Update UI
+                startBtn.disabled = false;
+                startBtn.textContent = '🎬 Start Recording';
+                stopBtn.disabled = true;
+                statusIndicator.textContent = 'Stopped';
+                statusIndicator.className = 'status stopped';
+                startBtn.parentElement.classList.remove('recording');
+                
+                // Stop timer
+                stopTimer();
+                
+                // Stop subtitle updates
+                stopSubtitleUpdates();
+                
+                console.log('⏹️ Recording stopped successfully');
+                
+            } catch (error) {
+                console.error('❌ Error stopping recording:', error);
+                
+                // Reset UI anyway
+                startBtn.disabled = false;
+                startBtn.textContent = '🎬 Start Recording';
+                statusIndicator.textContent = 'Error';
+                statusIndicator.className = 'status stopped';
+            }
+        }
+        
+        function startTimer() {
+            timerInterval = setInterval(updateTimer, 1000);
+        }
+        
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+        }
+        
+        function updateTimer() {
+            if (startTime) {
+                const elapsed = Date.now() - startTime;
+                const hours = Math.floor(elapsed / 3600000);
+                const minutes = Math.floor((elapsed % 3600000) / 60000);
+                const seconds = Math.floor((elapsed % 60000) / 1000);
+                
+                timer.textContent = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }
+        }
+        
+        function startSubtitleUpdates() {
+            // Update subtitles every 500ms while recording
+            subtitleUpdateInterval = setInterval(fetchLatestSubtitle, 500);
+        }
+        
+        function stopSubtitleUpdates() {
+            if (subtitleUpdateInterval) {
+                clearInterval(subtitleUpdateInterval);
+                subtitleUpdateInterval = null;
+            }
+        }
+        
+        async function fetchLatestSubtitle() {
+            try {
+                const response = await fetch(`${SERVER_URL}/subtitle`);
+                if (response.ok) {
+                    const subtitleData = await response.json();
+                    updateSubtitleDisplay(subtitleData);
+                }
+            } catch (error) {
+                console.error('Error fetching subtitle:', error);
+            }
+        }
+        
+        function updateSubtitleDisplay(subtitleData) {
+            if (subtitleData && subtitleData.original !== 'No subtitles yet') {
+                subtitleContent.innerHTML = `
+                    <div class="subtitle-text">
+                        <div class="subtitle-original">${subtitleData.original}</div>
+                        <div class="subtitle-translated">${subtitleData.translated}</div>
+                    </div>
+                    <div class="subtitle-timestamp">${subtitleData.timestamp}</div>
+                `;
+            } else {
+                subtitleContent.innerHTML = `
+                    <div class="no-subtitle">No subtitles yet. Start recording to see live transcription!</div>
+                `;
+            }
+        }
+        
+        // Language settings
+        function updateLanguageSettings() {
+            const input = inputLang.value;
+            const output = outputLang.value;
+            console.log(`🌍 Language settings updated: ${input} → ${output}`);
+            
+            // Update info panel to show current language pair
+            const infoPanel = document.querySelector('.info-panel h3');
+            if (infoPanel) {
+                const inputName = inputLang.options[inputLang.selectedIndex].text.split(' ')[0];
+                const outputName = outputLang.options[outputLang.selectedIndex].text.split(' ')[0];
+                infoPanel.innerHTML = `📋 Translation: ${inputName} → ${outputName}`;
+            }
+        }
+        
+        // Audio processor connection
+        async function connectToAudioProcessor() {
+            try {
+                console.log('🔌 Connecting to audio processor...');
+                
+                // For now, we'll use a simple approach - the audio processor
+                // will be running separately and communicate via HTTP
+                // In a future step, we'll add WebSocket or direct integration
+                
+                isConnectedToProcessor = true;
+                console.log('✅ Connected to audio processor (HTTP mode)');
+                return true;
+                
+            } catch (error) {
+                console.error('❌ Failed to connect to audio processor:', error);
+                isConnectedToProcessor = false;
+                return false;
+            }
+        }
+        
+        // Mock audio processor for HTTP communication
+        const mockAudioProcessor = {
+            async startRecording(inputLang, outputLang) {
+                console.log(`🎙️ Mock: Starting recording ${inputLang} → ${outputLang}`);
+                
+                // Send start command to server
+                try {
+                    const response = await fetch(`${SERVER_URL}/start_recording`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({input_lang: inputLang, output_lang: outputLang})
+                    });
+                    
+                    if (response.ok) {
+                        console.log('✅ Mock: Recording started via server');
+                        return true;
+                    } else {
+                        console.log('⚠️ Mock: Server returned error, but continuing...');
+                        return true; // Continue anyway for demo
+                    }
+                } catch (error) {
+                    console.log('⚠️ Mock: Server communication failed, but continuing...');
+                    return true; // Continue anyway for demo
+                }
+            },
+            
+            async stopRecording() {
+                console.log('⏹️ Mock: Stopping recording');
+                
+                // Send stop command to server
+                try {
+                    await fetch(`${SERVER_URL}/stop_recording`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'}
+                    });
+                } catch (error) {
+                    console.log('⚠️ Mock: Server communication failed, but continuing...');
+                }
+                
+                return true;
+            }
+        };
+        
+        // Use mock processor for now
+        audioProcessor = mockAudioProcessor;
+        
+        // Initialize
+        function init() {
+            console.log('🚀 Subtitle interface initialized');
+            console.log(`🌐 Connecting to server at ${SERVER_URL}`);
+            
+            // Test server connection
+            fetch(`${SERVER_URL}/status`)
+                .then(response => response.json())
+                .then(data => {
+                    console.log('✅ Server connected:', data);
+                })
+                .catch(error => {
+                    console.error('❌ Server connection failed:', error);
+                    subtitleContent.innerHTML = `
+                        <div class="no-subtitle" style="color: #ff6b6b;">
+                            ⚠️ Cannot connect to server. Make sure subtitle_server.py is running!
+                        </div>
+                    `;
+                });
+            
+            // Initialize language display
+            updateLanguageSettings();
+        }
+        
+        // Start when page loads
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

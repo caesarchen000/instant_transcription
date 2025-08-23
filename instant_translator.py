@@ -10,7 +10,7 @@ import tempfile
 import threading
 import time
 import queue
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 from functools import lru_cache
 
 class InstantAudioTranslator:
@@ -24,7 +24,6 @@ class InstantAudioTranslator:
         self.is_recording = False
         self.sample_rate = 16000  # Lower sample rate for faster processing
         self.whisper_model = None
-        self.translator = Translator()
         
         # Audio processing queues and buffers
         self.audio_queue = queue.Queue()
@@ -73,8 +72,25 @@ class InstantAudioTranslator:
         # Start processing thread
         self.start_processing_thread()
         
+        # Start WebSocket server for PiP overlay
+        self.start_websocket_server()
+        
         # Handle window closing
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+    
+    def start_websocket_server(self):
+        """Start WebSocket server for PiP overlay communication"""
+        try:
+            from websocket_server import start_server
+            self.subtitle_server = start_server()
+            print("🌐 WebSocket server started for PiP overlay")
+            print("📱 Open pip_subtitle_overlay.html in your browser to see live subtitles")
+        except ImportError:
+            print("⚠️  WebSocket server not available. Install with: pip install websockets")
+            self.subtitle_server = None
+        except Exception as e:
+            print(f"❌ Failed to start WebSocket server: {e}")
+            self.subtitle_server = None
     
     def on_closing(self):
         """Handle application closing"""
@@ -103,34 +119,115 @@ class InstantAudioTranslator:
             self.destroy_floating_window()
             self.floating_status.config(text="Floating subtitles: Disabled", foreground="gray")
     
+    def minimize_floating_window(self):
+        """Minimize the floating subtitle window"""
+        if self.floating_window:
+            self.floating_window.withdraw()
+            print("Floating subtitle window minimized")
+    
     def create_floating_window(self):
-        """Create floating subtitle window"""
+        """Create Picture-in-Picture style floating subtitle window"""
         if self.floating_window is None:
             self.floating_window = tk.Toplevel(self.root)
             self.floating_window.title("Floating Subtitles")
-            self.floating_window.geometry("600x150")
+            self.floating_window.geometry("500x120")
             self.floating_window.attributes('-topmost', True)
             self.floating_window.overrideredirect(True)
-            self.floating_window.configure(bg='black')
+            self.floating_window.configure(bg='#1a1a1a')
             
-            # Position at bottom center of screen
+            # Position at bottom right corner (like PiP)
             screen_width = self.root.winfo_screenwidth()
             screen_height = self.root.winfo_screenheight()
-            x = (screen_width - 600) // 2
-            y = screen_height - 200
-            self.floating_window.geometry(f"600x150+{x}+{y}")
+            x = screen_width - 520
+            y = screen_height - 140
+            self.floating_window.geometry(f"500x120+{x}+{y}")
             
-            # Subtitle text
-            self.floating_text = tk.Text(self.floating_window, bg='black', fg='white', 
-                                       font=('Arial', 16), wrap=tk.WORD, height=6)
-            self.floating_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            # Add rounded corners effect with frame
+            main_frame = tk.Frame(self.floating_window, bg='#1a1a1a', relief='flat', bd=0)
+            main_frame.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
             
-            # Make window draggable
-            self.floating_window.bind('<Button-1>', self.start_drag)
-            self.floating_window.bind('<B1-Motion>', self.on_drag)
-            self.floating_window.bind('<Double-Button-1>', self.toggle_floating_subtitles)
+            # Title bar with controls
+            title_bar = tk.Frame(main_frame, bg='#2d2d2d', height=25)
+            title_bar.pack(fill=tk.X, pady=(0, 5))
+            title_bar.pack_propagate(False)
             
-            print("Floating subtitle window created")
+            # Title text
+            title_label = tk.Label(title_bar, text="🎬 Live Subtitles", bg='#2d2d2d', fg='#ffffff', 
+                                 font=('SF Pro Display', 10, 'bold'))
+            title_label.pack(side=tk.LEFT, padx=10, pady=2)
+            
+            # Control buttons
+            controls_frame = tk.Frame(title_bar, bg='#2d2d2d')
+            controls_frame.pack(side=tk.RIGHT, padx=5)
+            
+            # Minimize button
+            min_btn = tk.Button(controls_frame, text="−", bg='#2d2d2d', fg='#ffffff', 
+                              font=('SF Pro Display', 12, 'bold'), bd=0, 
+                              command=self.minimize_floating_window)
+            min_btn.pack(side=tk.LEFT, padx=2)
+            
+            # Close button
+            close_btn = tk.Button(controls_frame, text="×", bg='#2d2d2d', fg='#ffffff', 
+                                font=('SF Pro Display', 12, 'bold'), bd=0, 
+                                command=self.toggle_floating_subtitles)
+            close_btn.pack(side=tk.LEFT, padx=2)
+            
+            # Subtitle content area
+            content_frame = tk.Frame(main_frame, bg='#1a1a1a')
+            content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            
+            # Subtitle text with better styling
+            self.floating_text = tk.Text(content_frame, bg='#1a1a1a', fg='#ffffff', 
+                                       font=('SF Pro Display', 14), wrap=tk.WORD, height=4,
+                                       relief='flat', bd=0, padx=10, pady=5)
+            self.floating_text.pack(fill=tk.BOTH, expand=True)
+            
+            # Make window draggable from title bar
+            title_bar.bind('<Button-1>', self.start_drag)
+            title_bar.bind('<B1-Motion>', self.on_drag)
+            
+            # Add some visual feedback
+            self.floating_window.bind('<Enter>', lambda e: self.on_window_hover(True))
+            self.floating_window.bind('<Leave>', lambda e: self.on_window_hover(False))
+            
+            # Add resize handle at bottom-right corner
+            self.add_resize_handle()
+            
+            print("🎬 Picture-in-Picture subtitle window created")
+    
+    def add_resize_handle(self):
+        """Add a resize handle to the bottom-right corner"""
+        if self.floating_window:
+            # Create resize handle
+            resize_handle = tk.Frame(self.floating_window, bg='#007AFF', width=10, height=10)
+            resize_handle.place(relx=1.0, rely=1.0, anchor='se')
+            resize_handle.pack_propagate(False)
+            
+            # Bind resize events
+            resize_handle.bind('<Button-1>', self.start_resize)
+            resize_handle.bind('<B1-Motion>', self.on_resize)
+            
+            # Visual indicator
+            indicator = tk.Label(resize_handle, text="⤡", bg='#007AFF', fg='white', font=('SF Pro Display', 8))
+            indicator.pack(expand=True)
+    
+    def start_resize(self, event):
+        """Start resizing the window"""
+        self.resize_start_x = event.x_root
+        self.resize_start_y = event.y_root
+        self.resize_start_width = self.floating_window.winfo_width()
+        self.resize_start_height = self.floating_window.winfo_height()
+    
+    def on_resize(self, event):
+        """Handle window resizing"""
+        if hasattr(self, 'resize_start_x'):
+            delta_x = event.x_root - self.resize_start_x
+            delta_y = event.y_root - self.resize_start_y
+            
+            new_width = max(300, self.resize_start_width + delta_x)  # Minimum 300px width
+            new_height = max(100, self.resize_start_height + delta_y)  # Minimum 100px height
+            
+            self.floating_window.geometry(f"{new_width}x{new_height}")
     
     def destroy_floating_window(self):
         """Destroy floating subtitle window"""
@@ -153,25 +250,61 @@ class InstantAudioTranslator:
         self.floating_window.geometry(f"+{x}+{y}")
     
     def update_floating_subtitles(self, original_text, translated_text):
-        """Update floating subtitle window with latest text"""
+        """Update Picture-in-Picture subtitle window with latest text"""
         if self.floating_window and self.show_floating_subtitles.get():
             try:
-                # Keep only the last 2 lines for better readability
-                lines = []
-                if original_text:
-                    lines.append(f"Original: {original_text}")
-                if translated_text:
-                    lines.append(f"Translated: {translated_text}")
+                # Format the display text with better visual hierarchy
+                timestamp = time.strftime("%H:%M:%S")
                 
-                # Limit to last 2 lines
-                if len(lines) > 2:
-                    lines = lines[-2:]
-                
-                display_text = "\n".join(lines)
+                # Clear previous content
                 self.floating_text.delete(1.0, tk.END)
-                self.floating_text.insert(1.0, display_text)
+                
+                # Add timestamp header
+                self.floating_text.insert(tk.END, f"🕐 {timestamp}\n", "timestamp")
+                self.floating_text.tag_configure("timestamp", foreground="#888888", font=('SF Pro Display', 10))
+                
+                # Add original text
+                if original_text:
+                    self.floating_text.insert(tk.END, f"📝 {original_text}\n", "original")
+                    self.floating_text.tag_configure("original", foreground="#ffffff", font=('SF Pro Display', 12))
+                
+                # Add translated text if different
+                if translated_text and translated_text != original_text:
+                    self.floating_text.insert(tk.END, f"🌐 {translated_text}", "translated")
+                    self.floating_text.tag_configure("translated", foreground="#00D4FF", font=('SF Pro Display', 12))
+                
+                # Auto-scroll to bottom
+                self.floating_text.see(tk.END)
+                
+                # Flash effect to draw attention to new content
+                self.flash_subtitle_window()
+                
+                # Send to WebSocket server for PiP overlay
+                self.send_to_websocket(original_text, translated_text, timestamp)
+                
             except Exception as e:
                 print(f"Error updating floating subtitles: {e}")
+    
+    def send_to_websocket(self, original_text, translated_text, timestamp):
+        """Send subtitle update to WebSocket server for PiP overlay"""
+        if self.subtitle_server:
+            try:
+                self.subtitle_server.send_subtitle_sync(original_text, translated_text, timestamp)
+            except Exception as e:
+                print(f"Error sending to WebSocket: {e}")
+    
+    def flash_subtitle_window(self):
+        """Flash the subtitle window to draw attention to new content"""
+        if self.floating_window:
+            try:
+                # Flash effect - briefly change background color
+                original_bg = self.floating_window.cget('bg')
+                self.floating_window.configure(bg='#007AFF')
+                
+                # Reset after 200ms
+                self.floating_window.after(200, lambda: self.floating_window.configure(bg=original_bg))
+            except Exception:
+                pass
     
     def setup_ui(self):
         """Setup the user interface"""
@@ -592,9 +725,15 @@ class InstantAudioTranslator:
                 # Prepare context for better translation quality
                 context_prompt = self.prepare_translation_context(text)
                 
-                # Translate using googletrans with context
-                result = self.translator.translate(text, src=source_lang, dest=target_lang)
-                translated_text = result.text
+                # Translate using deep-translator with context
+                try:
+                    # Create translator for specific language pair
+                    translator = GoogleTranslator(source=source_lang, target=target_lang)
+                    translated_text = translator.translate(text)
+                except Exception as e:
+                    print(f"Translation error with deep-translator: {e}")
+                    # Fallback to simple text
+                    translated_text = f"[Translation Error: {text}]"
                 
                 # Cache the result
                 self.translation_cache[cache_key] = translated_text

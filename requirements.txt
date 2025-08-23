@@ -1,21 +1,29 @@
-# Audio recording
-pyaudio>=0.2.11
+# Audio recording and processing
+sounddevice>=0.4.6
+soundfile>=0.12.1
 numpy>=1.21.0
-openai-whisper>=20230117
-torch>=1.9.0
+pyaudio>=0.2.11
 
-# Speech recognition and translation
-googletrans==4.0.0rc1
-SpeechRecognition>=3.8.1
+# Speech recognition and transcription
+openai-whisper>=20231117
+torch>=1.9.0
 ffmpeg-python>=0.2.0
 scipy>=1.7.0
+
+# Translation - multiple methods with fallbacks
+googletrans==4.0.0rc1
+deep-translator>=1.11.0
+
+# WebSocket server for PiP overlay
+websockets>=11.0
+
+# HTTP requests for subtitle server
+requests>=2.31.0
 
 # GUI and utilities
 pyautogui
 Pillow
 plyer
 mss
-sounddevice>=0.4.1
-soundfile>=0.10.3
 translate
 opencv-python
