@@ -22,9 +22,9 @@ class AudioProcessor:
     def __init__(self, server_url='http://localhost:8770'):
         self.server_url = server_url
         self.sample_rate = 44100  # Higher sample rate for better quality
-        self.chunk_size = 1024    # Smaller chunks for lower latency (was 2048)
-        self.buffer_size = 1 * self.sample_rate  # 1 second for faster processing (was 2 seconds)
-        self.overlap_ratio = 0.2  # 20% overlap for smoother transitions (was 30%)
+        self.chunk_size = 2048    # Larger chunks for better processing
+        self.buffer_size = 2 * self.sample_rate  # 2 seconds for better context
+        self.overlap_ratio = 0.3  # 30% overlap for smoother transitions
         
         # Audio processing
         self.audio_buffer = []
@@ -57,17 +57,17 @@ class AudioProcessor:
             "vi": "vi"
         }
         
-        # Whisper model - use base model for lower latency
+        # Whisper model - use larger model for better accuracy
         print("🧠 Loading Whisper model...")
         try:
-            # Use base model for lower latency (was medium)
-            self.whisper_model = whisper.load_model("base")
-            print("✅ Whisper base model loaded successfully (faster for lower latency)")
+            # Use medium model for better accuracy with non-English languages
+            self.whisper_model = whisper.load_model("medium")
+            print("✅ Whisper medium model loaded successfully (better for non-English)")
         except Exception as e:
-            print(f"⚠️ Base model failed, trying tiny model: {e}")
+            print(f"⚠️ Medium model failed, trying base model: {e}")
             try:
-                self.whisper_model = whisper.load_model("tiny")
-                print("✅ Whisper tiny model loaded successfully (fastest for lowest latency)")
+                self.whisper_model = whisper.load_model("base")
+                print("✅ Whisper base model loaded successfully")
             except Exception as e2:
                 print(f"❌ Error loading Whisper model: {e2}")
                 print("💡 Make sure you have Whisper installed: pip install openai-whisper")
@@ -115,39 +115,10 @@ class AudioProcessor:
         self.context_window = []
         self.max_context_length = 100
         
-        # Low latency mode
-        self.low_latency_mode = True
-        self.force_processing = False  # Force processing even with small buffers
-        
         print("🎤 Audio processor initialized")
         print(f"🔍 Translation method: {self.translation_method}")
-        print(f"⚡ Low latency mode: {'ENABLED' if self.low_latency_mode else 'DISABLED'}")
-        print(f"📊 Buffer size: {self.buffer_size/self.sample_rate:.1f}s")
-        print(f"📊 Chunk size: {self.chunk_size/self.sample_rate*1000:.1f}ms")
-        print(f"🎯 Expected latency: ~{self.buffer_size/self.sample_rate*1000:.0f}ms + Whisper processing time")
         if self.translator:
             print(f"🔍 Translator type: {type(self.translator)}")
-    
-    def set_latency_mode(self, low_latency=True):
-        """Switch between low latency and high accuracy modes"""
-        if low_latency:
-            # Low latency mode
-            self.chunk_size = 1024
-            self.buffer_size = 1 * self.sample_rate
-            self.overlap_ratio = 0.2
-            print("⚡ Switched to LOW LATENCY mode")
-            print(f"📊 New buffer size: {self.buffer_size/self.sample_rate:.1f}s")
-            print(f"📊 New chunk size: {self.chunk_size/self.sample_rate*1000:.1f}ms")
-        else:
-            # High accuracy mode
-            self.chunk_size = 2048
-            self.buffer_size = 2 * self.sample_rate
-            self.overlap_ratio = 0.3
-            print("🎯 Switched to HIGH ACCURACY mode")
-            print(f"📊 New buffer size: {self.buffer_size/self.sample_rate:.1f}s")
-            print(f"📊 New chunk size: {self.chunk_size/self.sample_rate*1000:.1f}ms")
-        
-        self.low_latency_mode = low_latency
     
     def get_language_code(self, lang_code):
         """Convert language code to googletrans format"""
@@ -243,7 +214,7 @@ class AudioProcessor:
                 dtype='float32',
                 device=device_index,
                 blocksize=self.chunk_size,
-                latency='lowest'  # Lowest latency for minimal delay
+                latency='low'  # Lower latency for better real-time performance
             ) as stream:
                 print("🎙️ System audio stream opened successfully")
                 print("💡 Now play some audio (YouTube, music, etc.) to capture it!")
@@ -269,13 +240,8 @@ class AudioProcessor:
                         
                         # Check if we have enough audio for processing
                         total_samples = len(self.audio_buffer) * self.chunk_size
-                        
-                        # Process audio more frequently in low latency mode
-                        should_process = (total_samples >= self.buffer_size or 
-                                        (self.low_latency_mode and total_samples >= self.buffer_size * 0.5))
-                        
-                        if should_process:
-                            print(f"🎵 Processing audio! {len(self.audio_buffer)} chunks ({total_samples/self.sample_rate:.1f}s)")
+                        if total_samples >= self.buffer_size:
+                            print(f"🎵 Audio buffer full! Processing {len(self.audio_buffer)} chunks ({total_samples/self.sample_rate:.1f}s)")
                             
                             # Combine audio chunks
                             combined_audio = np.concatenate(self.audio_buffer, axis=0)
@@ -335,15 +301,11 @@ class AudioProcessor:
                 # Transcribe with Whisper - optimized for better accuracy
                 print("🧠 Transcribing audio...")
                 
-                # Set transcription options optimized for low latency
+                # Set transcription options based on language
                 transcribe_options = {
                     "task": "transcribe",
-                    "fp16": True,  # Use half precision for faster processing
-                    "verbose": False,
-                    "condition_on_previous_text": False,  # Don't condition on previous text for faster processing
-                    "compression_ratio_threshold": 2.4,  # Lower threshold for faster processing
-                    "logprob_threshold": -1.0,  # Lower threshold for faster processing
-                    "no_speech_threshold": 0.6  # Lower threshold for faster processing
+                    "fp16": False,  # Use full precision for better accuracy
+                    "verbose": False
                 }
                 
                 # For non-English languages, use language-specific settings
