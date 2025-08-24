@@ -23,7 +23,7 @@ except ImportError as e:
     sys.exit(1)
 
 class SubtitleServer:
-    def __init__(self, host='localhost', port=8766):
+    def __init__(self, host='localhost', port=8770):
         self.host = host
         self.port = port
         self.latest_subtitle = None
@@ -143,7 +143,12 @@ class SubtitleServer:
             "audio_processor_ready": self.is_audio_processor_ready(),
             "input_device": getattr(self.audio_processor, 'input_device', None) if self.audio_processor else None,
             "input_device_name": getattr(self.audio_processor, 'input_device_name', None) if self.audio_processor else None,
-            "whisper_ready": getattr(self.audio_processor, 'whisper_model', None) is not None if self.audio_processor else False
+            "whisper_ready": getattr(self.audio_processor, 'whisper_model', None) is not None if self.audio_processor else False,
+            "debug_info": {
+                "audio_processor_exists": self.audio_processor is not None,
+                "whisper_model_exists": getattr(self.audio_processor, 'whisper_model', None) is not None if self.audio_processor else None,
+                "translation_method": getattr(self.audio_processor, 'translation_method', None) if self.audio_processor else None
+            }
         }
 
 class SubtitleHTTPHandler(http.server.BaseHTTPRequestHandler):
@@ -204,6 +209,31 @@ class SubtitleHTTPHandler(http.server.BaseHTTPRequestHandler):
             status_data = self.subtitle_server.get_status()
             self.wfile.write(json.dumps(status_data).encode('utf-8'))
             
+        elif self.path == '/test_audio':
+            # Test audio devices
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            try:
+                import sounddevice as sd
+                devices = sd.query_devices()
+                input_devices = [d for d in devices if d.get('max_inputs', 0) > 0]
+                
+                test_data = {
+                    "all_devices": [{"name": d.get('name', 'Unknown'), "max_inputs": d.get('max_inputs', 0), "max_outputs": d.get('max_outputs', 0)} for d in devices],
+                    "input_devices": [{"name": d.get('name', 'Unknown'), "max_inputs": d.get('max_inputs', 0)} for d in input_devices],
+                    "default_input": sd.default.device[0] if hasattr(sd, 'default') else None,
+                    "default_output": sd.default.device[1] if hasattr(sd, 'default') else None
+                }
+                
+                self.wfile.write(json.dumps(test_data, indent=2).encode('utf-8'))
+                
+            except Exception as e:
+                error_data = {"error": str(e)}
+                self.wfile.write(json.dumps(error_data).encode('utf-8'))
+            
         else:
             self.send_response(404)
             self.end_headers()
@@ -211,7 +241,7 @@ class SubtitleHTTPHandler(http.server.BaseHTTPRequestHandler):
     
     def do_POST(self):
         """Handle POST requests for subtitle updates and recording control"""
-        if self.path == '/update':
+        if self.path == '/update' or self.path == '/subtitle':
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
             

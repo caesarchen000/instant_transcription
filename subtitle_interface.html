@@ -95,6 +95,21 @@
             box-shadow: 0 8px 25px rgba(255, 107, 107, 0.4);
         }
 
+        .btn-secondary {
+            background: linear-gradient(45deg, #9b59b6, #8e44ad);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(155, 89, 182, 0.4);
+        }
+
+        .btn-secondary.active {
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            color: white;
+        }
+
         .btn:disabled {
             opacity: 0.6;
             cursor: not-allowed;
@@ -182,6 +197,54 @@
             margin-top: 10px;
         }
 
+        /* PiP Mode Styles */
+        body.pip-mode {
+            background: transparent !important;
+            overflow: hidden;
+        }
+
+        body.pip-mode .header,
+        body.pip-mode .controls,
+        body.pip-mode .info-panel {
+            display: none !important;
+        }
+
+        /* Native PiP Video Element */
+        #pipVideo {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            width: 360px;
+            height: 200px;
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            box-shadow: 0 10px 30px rgba(0,0,0,.5);
+            background: #000;
+            z-index: 10;
+            display: none;
+        }
+
+        #pipVideo video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .pip-handle {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: rgba(13,19,36,.7);
+            border: 1px solid rgba(255,255,255,.08);
+            font-size: 12px;
+            color: white;
+            pointer-events: none;
+        }
+
         .no-subtitle {
             color: #666666;
             font-style: italic;
@@ -241,6 +304,7 @@
         <div class="control-group">
             <button id="startBtn" class="btn btn-primary">🎬 Start Recording</button>
             <button id="stopBtn" class="btn btn-danger" disabled>⏹️ Stop Recording</button>
+            <button id="pipBtn" class="btn btn-secondary">📺 PiP Mode</button>
         </div>
         
         <div class="control-group">
@@ -317,6 +381,12 @@
         </div>
     </div>
 
+    <!-- PiP Video Element for Native Picture-in-Picture -->
+    <div id="pipVideo">
+        <div class="pip-handle">📺 PiP Preview</div>
+        <video id="pipVideoElement" muted playsinline></video>
+    </div>
+
             <div class="info-panel">
             <h3>📋 How It Works</h3>
             <p>1. Select your <strong>Input Language</strong> (what you'll speak)</p>
@@ -333,10 +403,13 @@
         let startTime = null;
         let timerInterval = null;
         let subtitleUpdateInterval = null;
+        let isPiPMode = false;
+        let pipUpdateInterval = null;
         
         // DOM elements
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const pipBtn = document.getElementById('pipBtn');
         const statusIndicator = document.getElementById('statusIndicator');
         const timer = document.getElementById('timer');
         const subtitleContent = document.getElementById('subtitleContent');
@@ -344,11 +417,12 @@
         const outputLang = document.getElementById('outputLang');
         
         // Server configuration
-        const SERVER_URL = 'http://localhost:8766';
+        const SERVER_URL = 'http://localhost:8770';
         
         // Event listeners
         startBtn.addEventListener('click', startRecording);
         stopBtn.addEventListener('click', stopRecording);
+        pipBtn.addEventListener('click', togglePiPMode);
         
         // Language change listeners
         inputLang.addEventListener('change', updateLanguageSettings);
@@ -516,6 +590,11 @@
                     </div>
                     <div class="subtitle-timestamp">${subtitleData.timestamp}</div>
                 `;
+                
+                // Update PiP video if in PiP mode
+                if (isPiPMode) {
+                    updatePiPVideo();
+                }
             } else {
                 subtitleContent.innerHTML = `
                     <div class="no-subtitle">No subtitles yet. Start recording to see live transcription!</div>
@@ -603,6 +682,158 @@
         
         // Use mock processor for now
         audioProcessor = mockAudioProcessor;
+        
+        // PiP Mode Functions - Using Native Browser PiP API
+        const pipVideo = document.getElementById('pipVideo');
+        const pipVideoElement = document.getElementById('pipVideoElement');
+        
+        async function togglePiPMode() {
+            try {
+                // Check if PiP is supported
+                if (!('pictureInPictureEnabled' in document)) {
+                    alert('Picture-in-Picture is not supported in this browser');
+                    return;
+                }
+                
+                if (document.pictureInPictureElement) {
+                    // Exit PiP mode
+                    await document.exitPictureInPicture();
+                    pipBtn.textContent = '📺 PiP Mode';
+                    pipBtn.classList.remove('active');
+                    isPiPMode = false;
+                    console.log('🏠 Exited PiP mode');
+                } else {
+                    // Enter PiP mode
+                    if (!isRecording) {
+                        alert('Please start recording first to enable PiP mode');
+                        return;
+                    }
+                    
+                    // Create a video stream from the subtitle content
+                    await createSubtitleVideo();
+                    
+                    // Request PiP
+                    await pipVideoElement.requestPictureInPicture();
+                    pipBtn.textContent = '🏠 Exit PiP';
+                    pipBtn.classList.add('active');
+                    isPiPMode = true;
+                    
+                    // Start continuous PiP updates
+                    pipUpdateInterval = setInterval(updatePiPVideo, 100); // Update every 100ms for smooth animation
+                    
+                    console.log('📺 Entered PiP mode');
+                }
+                
+            } catch (error) {
+                console.error('❌ PiP error:', error);
+                alert('PiP error: ' + error.message);
+            }
+        }
+        
+        async function createSubtitleVideo() {
+            try {
+                // Create a canvas to render subtitles
+                const canvas = document.createElement('canvas');
+                canvas.width = 640;
+                canvas.height = 360;
+                const ctx = canvas.getContext('2d');
+                
+                // Set background
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Get current subtitle text
+                const subtitleText = subtitleContent.textContent || 'No subtitles yet';
+                
+                // Draw subtitle text
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 24px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                // Split text into lines if too long
+                const words = subtitleText.split(' ');
+                const lines = [];
+                let currentLine = '';
+                
+                for (let word of words) {
+                    const testLine = currentLine + word + ' ';
+                    const metrics = ctx.measureText(testLine);
+                    if (metrics.width > canvas.width - 40) {
+                        lines.push(currentLine);
+                        currentLine = word + ' ';
+                    } else {
+                        currentLine = testLine;
+                    }
+                }
+                lines.push(currentLine);
+                
+                // Draw each line
+                const lineHeight = 30;
+                const startY = (canvas.height - (lines.length * lineHeight)) / 2;
+                
+                lines.forEach((line, index) => {
+                    ctx.fillText(line.trim(), canvas.width / 2, startY + (index * lineHeight));
+                });
+                
+                // Convert canvas to video stream
+                const stream = canvas.captureStream(30); // 30 FPS
+                
+                // Set video source and wait for it to load
+                pipVideoElement.srcObject = stream;
+                
+                // Wait for video metadata to load before proceeding
+                await new Promise((resolve, reject) => {
+                    pipVideoElement.addEventListener('loadedmetadata', resolve, { once: true });
+                    pipVideoElement.addEventListener('error', reject, { once: true });
+                    
+                    // Start playing to trigger metadata loading
+                    pipVideoElement.play().catch(() => {
+                        // Ignore play errors, we just need metadata
+                    });
+                    
+                    // Timeout after 2 seconds
+                    setTimeout(() => reject(new Error('Video metadata loading timeout')), 2000);
+                });
+                
+                // Show preview
+                pipVideo.style.display = 'block';
+                
+                console.log('✅ Subtitle video created successfully');
+                
+            } catch (error) {
+                console.error('❌ Error creating subtitle video:', error);
+                throw error;
+            }
+        }
+        
+        // Update PiP video when subtitles change
+        function updatePiPVideo() {
+            if (isPiPMode && pipVideoElement.srcObject) {
+                // Recreate the video with new subtitles
+                createSubtitleVideo().catch(console.error);
+            }
+        }
+        
+        // PiP event listeners
+        document.addEventListener('enterpictureinpicture', () => {
+            console.log('📺 Entered PiP mode');
+            pipVideo.style.display = 'none'; // Hide preview when in PiP
+        });
+        
+        document.addEventListener('leavepictureinpicture', () => {
+            console.log('🏠 Left PiP mode');
+            pipVideo.style.display = 'none';
+            pipBtn.textContent = '📺 PiP Mode';
+            pipBtn.classList.remove('active');
+            isPiPMode = false;
+            
+            // Clear PiP update interval
+            if (pipUpdateInterval) {
+                clearInterval(pipUpdateInterval);
+                pipUpdateInterval = null;
+            }
+        });
         
         // Initialize
         function init() {

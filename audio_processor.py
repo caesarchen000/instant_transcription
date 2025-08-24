@@ -19,12 +19,12 @@ import tempfile
 import os
 
 class AudioProcessor:
-    def __init__(self, server_url='http://localhost:8766'):
+    def __init__(self, server_url='http://localhost:8770'):
         self.server_url = server_url
-        self.sample_rate = 16000  # Whisper works best with 16kHz
-        self.chunk_size = 1024
-        self.buffer_size = 1 * self.sample_rate  # 1 second of audio for faster response
-        self.overlap_ratio = 0.2  # 20% overlap between chunks
+        self.sample_rate = 44100  # Higher sample rate for better quality
+        self.chunk_size = 1024    # Smaller chunks for lower latency (was 2048)
+        self.buffer_size = 1 * self.sample_rate  # 1 second for faster processing (was 2 seconds)
+        self.overlap_ratio = 0.2  # 20% overlap for smoother transitions (was 30%)
         
         # Audio processing
         self.audio_buffer = []
@@ -57,15 +57,21 @@ class AudioProcessor:
             "vi": "vi"
         }
         
-        # Whisper model
+        # Whisper model - use base model for lower latency
         print("🧠 Loading Whisper model...")
         try:
-            self.whisper_model = whisper.load_model("base")  # Start with base model
-            print("✅ Whisper model loaded successfully")
+            # Use base model for lower latency (was medium)
+            self.whisper_model = whisper.load_model("base")
+            print("✅ Whisper base model loaded successfully (faster for lower latency)")
         except Exception as e:
-            print(f"❌ Error loading Whisper model: {e}")
-            print("💡 Make sure you have Whisper installed: pip install openai-whisper")
-            self.whisper_model = None
+            print(f"⚠️ Base model failed, trying tiny model: {e}")
+            try:
+                self.whisper_model = whisper.load_model("tiny")
+                print("✅ Whisper tiny model loaded successfully (fastest for lowest latency)")
+            except Exception as e2:
+                print(f"❌ Error loading Whisper model: {e2}")
+                print("💡 Make sure you have Whisper installed: pip install openai-whisper")
+                self.whisper_model = None
         
         # Translation - Use googletrans like the working files
         self.translator = None
@@ -109,10 +115,39 @@ class AudioProcessor:
         self.context_window = []
         self.max_context_length = 100
         
+        # Low latency mode
+        self.low_latency_mode = True
+        self.force_processing = False  # Force processing even with small buffers
+        
         print("🎤 Audio processor initialized")
         print(f"🔍 Translation method: {self.translation_method}")
+        print(f"⚡ Low latency mode: {'ENABLED' if self.low_latency_mode else 'DISABLED'}")
+        print(f"📊 Buffer size: {self.buffer_size/self.sample_rate:.1f}s")
+        print(f"📊 Chunk size: {self.chunk_size/self.sample_rate*1000:.1f}ms")
+        print(f"🎯 Expected latency: ~{self.buffer_size/self.sample_rate*1000:.0f}ms + Whisper processing time")
         if self.translator:
             print(f"🔍 Translator type: {type(self.translator)}")
+    
+    def set_latency_mode(self, low_latency=True):
+        """Switch between low latency and high accuracy modes"""
+        if low_latency:
+            # Low latency mode
+            self.chunk_size = 1024
+            self.buffer_size = 1 * self.sample_rate
+            self.overlap_ratio = 0.2
+            print("⚡ Switched to LOW LATENCY mode")
+            print(f"📊 New buffer size: {self.buffer_size/self.sample_rate:.1f}s")
+            print(f"📊 New chunk size: {self.chunk_size/self.sample_rate*1000:.1f}ms")
+        else:
+            # High accuracy mode
+            self.chunk_size = 2048
+            self.buffer_size = 2 * self.sample_rate
+            self.overlap_ratio = 0.3
+            print("🎯 Switched to HIGH ACCURACY mode")
+            print(f"📊 New buffer size: {self.buffer_size/self.sample_rate:.1f}s")
+            print(f"📊 New chunk size: {self.chunk_size/self.sample_rate*1000:.1f}ms")
+        
+        self.low_latency_mode = low_latency
     
     def get_language_code(self, lang_code):
         """Convert language code to googletrans format"""
@@ -176,41 +211,25 @@ class AudioProcessor:
             print("🎤 Recording system audio (YouTube, etc.)...")
             device_info = sd.query_devices()
             
-            # Try to find record+listening first (like screen_recorder.py)
+            # Use BlackHole 16ch directly since it has 16 input channels
             try:
-                device_index = next(i for i, d in enumerate(device_info) if 'record+listening' in d['name'])
+                device_index = next(i for i, d in enumerate(device_info) if 'BlackHole 16ch' in d['name'])
                 selected_device = device_info[device_index]
-                print(f"Found device: {selected_device['name']}")
+                print(f"Found BlackHole 16ch: {selected_device['name']}")
                 print(f"Device info: {selected_device}")
                 
-                # Check if it has input channels
-                if 'max_inputs' in selected_device:
-                    channels = selected_device['max_inputs']
-                else:
-                    channels = selected_device.get('channels', 0)
+                # BlackHole 16ch has 16 input channels, but limit to 2 for compatibility
+                channels = 2
+                print(f"Using {channels} channels (limited from 16 for compatibility)")
                 
-                print(f"Device input channels: {channels}")
-                
-                # If record+listening has no input channels, fall back to BlackHole 16ch
-                if channels == 0:
-                    print("record+listening is an output device. Using BlackHole 16ch for recording...")
-                    device_index = next(i for i, d in enumerate(device_info) if 'BlackHole 16ch' in d['name'])
-                    selected_device = device_info[device_index]
-                    print(f"Switched to device: {selected_device['name']}")
-                    print(f"BlackHole device info: {selected_device}")
-                    # Limit to 2 channels for compatibility with audio players
-                    channels = 2
-                    print(f"Using {channels} channels (limited from 16 for compatibility)")
-                    
             except StopIteration:
-                print("record+listening not found. Using BlackHole 16ch...")
-                device_index = next(i for i, d in enumerate(device_info) if 'BlackHole 16ch' in d['name'])
+                print("BlackHole 16ch not found. Trying BlackHole 2ch...")
+                device_index = next(i for i, d in enumerate(device_info) if 'BlackHole 2ch' in d['name'])
                 selected_device = device_info[device_index]
                 print(f"Using device: {selected_device['name']}")
                 print(f"BlackHole device info: {selected_device}")
-                # Limit to 2 channels for compatibility
                 channels = 2
-                print(f"Using {channels} channels (limited for compatibility)")
+                print(f"Using {channels} channels")
 
             print(f"Final device selection: {selected_device['name']} with {channels} channels")
             
@@ -223,7 +242,8 @@ class AudioProcessor:
                 channels=channels,
                 dtype='float32',
                 device=device_index,
-                blocksize=self.chunk_size
+                blocksize=self.chunk_size,
+                latency='lowest'  # Lowest latency for minimal delay
             ) as stream:
                 print("🎙️ System audio stream opened successfully")
                 print("💡 Now play some audio (YouTube, music, etc.) to capture it!")
@@ -233,6 +253,11 @@ class AudioProcessor:
                         audio_chunk, overflowed = stream.read(self.chunk_size)
                         if overflowed:
                             print("⚠️ Audio buffer overflow")
+                        
+                        # Check if we're getting actual audio data (not just silence)
+                        audio_level = np.max(np.abs(audio_chunk))
+                        if audio_level > 0.001:  # Very low threshold to detect any sound
+                            print(f"🎵 Audio detected! Level: {audio_level:.4f}")
                         
                         # Add to buffer
                         self.audio_buffer.append(audio_chunk.copy())
@@ -244,8 +269,13 @@ class AudioProcessor:
                         
                         # Check if we have enough audio for processing
                         total_samples = len(self.audio_buffer) * self.chunk_size
-                        if total_samples >= self.buffer_size:
-                            print(f"🎵 Audio buffer full! Processing {len(self.audio_buffer)} chunks ({total_samples/self.sample_rate:.1f}s)")
+                        
+                        # Process audio more frequently in low latency mode
+                        should_process = (total_samples >= self.buffer_size or 
+                                        (self.low_latency_mode and total_samples >= self.buffer_size * 0.5))
+                        
+                        if should_process:
+                            print(f"🎵 Processing audio! {len(self.audio_buffer)} chunks ({total_samples/self.sample_rate:.1f}s)")
                             
                             # Combine audio chunks
                             combined_audio = np.concatenate(self.audio_buffer, axis=0)
@@ -302,13 +332,30 @@ class AudioProcessor:
                 temp_path = temp_file.name
             
             try:
-                # Transcribe with Whisper
+                # Transcribe with Whisper - optimized for better accuracy
                 print("🧠 Transcribing audio...")
-                result = self.whisper_model.transcribe(
-                    temp_path,
-                    language=self.input_lang if self.input_lang != 'auto' else None,
-                    task="transcribe"
-                )
+                
+                # Set transcription options optimized for low latency
+                transcribe_options = {
+                    "task": "transcribe",
+                    "fp16": True,  # Use half precision for faster processing
+                    "verbose": False,
+                    "condition_on_previous_text": False,  # Don't condition on previous text for faster processing
+                    "compression_ratio_threshold": 2.4,  # Lower threshold for faster processing
+                    "logprob_threshold": -1.0,  # Lower threshold for faster processing
+                    "no_speech_threshold": 0.6  # Lower threshold for faster processing
+                }
+                
+                # For non-English languages, use language-specific settings
+                if self.input_lang != 'auto' and self.input_lang != 'en':
+                    transcribe_options["language"] = self.input_lang
+                    print(f"🌍 Using language-specific transcription for: {self.input_lang}")
+                elif self.input_lang == 'auto':
+                    print("🌍 Auto-detecting language...")
+                else:
+                    print("🌍 Transcribing in English mode")
+                
+                result = self.whisper_model.transcribe(temp_path, **transcribe_options)
                 
                 transcribed_text = result['text'].strip()
                 
@@ -450,7 +497,7 @@ class AudioProcessor:
             }
             
             response = requests.post(
-                f"{self.server_url}/update",
+                f"{self.server_url}/subtitle",
                 json=subtitle_data,
                 headers={'Content-Type': 'application/json'},
                 timeout=5
